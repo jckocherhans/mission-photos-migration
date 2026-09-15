@@ -94,7 +94,8 @@ class Api:
             finally:
                 if callable(body) and hasattr(data, "close"):
                     data.close()
-            if r.status_code == 429 or r.status_code >= 500:
+            aborted = r.status_code == 409 and "ABORTED" in r.text
+            if r.status_code == 429 or r.status_code >= 500 or aborted:
                 wait = 30 if r.status_code == 429 else 5 * (attempt + 1)
                 log(f"  {r.status_code} from {url.split('?')[0]} — waiting {wait}s")
                 time.sleep(wait)
