@@ -222,14 +222,32 @@ def upload_bytes(api, path, name, mime):
 
 
 def add_to_album(api, st, album, md5s):
+    """Add items to an album. Google rejects the whole request if any id is one it matched to a
+    photo already in the library that this app did not create (e.g. an earlier manual upload).
+    On that error we bisect to find the offending items and mark them `preexisting`."""
+    md5s = [m for m in md5s if not st["items"][m].get("preexisting")]
+    if not md5s:
+        return
     ids = [st["items"][m]["media_id"] for m in md5s]
     r = api.call("POST", f"{PHOTOS}/albums/{st['albums'][album]}:batchAddMediaItems", json={"mediaItemIds": ids})
-    if r.status_code != 200:
-        log(f"batchAdd failed for {album}: {r.text[:300]}")
-        sys.exit(1)
-    for m in md5s:
-        st["items"][m].setdefault("albums_done", []).append(album)
-    jsave(STATE, st)
+    if r.status_code == 200:
+        for m in md5s:
+            st["items"][m].setdefault("albums_done", []).append(album)
+        jsave(STATE, st)
+        return
+    if r.status_code == 400 and "invalid media item id" in r.text.lower():
+        if len(md5s) == 1:
+            it = st["items"][md5s[0]]
+            it["preexisting"] = True
+            log(f"  already in library (not app-created), cannot file: {it.get('name', md5s[0])}")
+            jsave(STATE, st)
+            return
+        half = len(md5s) // 2
+        add_to_album(api, st, album, md5s[:half])
+        add_to_album(api, st, album, md5s[half:])
+        return
+    log(f"batchAdd failed for {album}: {r.text[:300]}")
+    sys.exit(1)
 
 
 def flush_batch(api, st, batch):
@@ -247,6 +265,7 @@ def flush_batch(api, st, batch):
         code = res.get("status", {}).get("code", 0)
         if code == 0 and "mediaItem" in res:
             st["items"][g["md5"]]["media_id"] = res["mediaItem"]["id"]
+            st["items"][g["md5"]]["name"] = g["name"]
             st["items"][g["md5"]].pop("error", None)
         else:
             st["items"][g["md5"]]["error"] = res.get("status", {}).get("message", "?")
@@ -273,6 +292,13 @@ def cmd_upload(args):
     if not plan or not st["albums"]:
         sys.exit("run `plan` and `albums` first")
     os.makedirs(TMP, exist_ok=True)
+    if args.retry_preexisting:
+        # Jason removed the old copies: forget the library match so these upload afresh.
+        for md5, it in st["items"].items():
+            if it.get("preexisting"):
+                for k in ("media_id", "upload_token", "upload_time", "preexisting"):
+                    it.pop(k, None)
+        jsave(STATE, st)
     todo = [g for g in plan["items"] if "media_id" not in st["items"].get(g["md5"], {})]
     if args.album:
         todo = [g for g in todo if args.album in g["albums"]]
@@ -304,6 +330,7 @@ def cmd_upload(args):
     flush_batch(api, st, batch)
     # pending album adds for items created earlier but not fully filed (e.g. after a crash)
     pending = [g for g in plan["items"] if "media_id" in st["items"].get(g["md5"], {})
+               and not st["items"][g["md5"]].get("preexisting")
                and set(g["albums"] + [MASTER]) - set(st["items"][g["md5"]].get("albums_done", []))]
     if pending:
         log(f"filing {len(pending)} previously created items into remaining albums")
@@ -357,9 +384,14 @@ def cmd_report(args):
     n = len(plan["items"])
     done = sum(1 for g in plan["items"] if "media_id" in st["items"].get(g["md5"], {}))
     err = [g["name"] for g in plan["items"] if "error" in st["items"].get(g["md5"], {})]
-    print(f"{done}/{n} items in Google Photos; {len(err)} errors; {len(st['albums'])} albums")
+    pre = [g for g in plan["items"] if st["items"].get(g["md5"], {}).get("preexisting")]
+    print(f"{done}/{n} items in Google Photos; {len(err)} errors; {len(pre)} already in library "
+          f"(not filed into albums); {len(st['albums'])} albums")
     if err:
         print("errors:", err[:20])
+    if pre:
+        by_album = collections.Counter(a for g in pre for a in g["albums"])
+        print("already-in-library items by album:", dict(by_album))
 
 
 if __name__ == "__main__":
@@ -372,5 +404,7 @@ if __name__ == "__main__":
     u = sub.add_parser("upload")
     u.add_argument("--album")
     u.add_argument("--limit", type=int)
+    u.add_argument("--retry-preexisting", action="store_true",
+                   help="re-upload items previously matched to non-app photos (after those were deleted)")
     a = ap.parse_args()
     {"plan": cmd_plan, "albums": cmd_albums, "upload": cmd_upload, "verify": cmd_verify, "report": cmd_report}[a.cmd](a)
