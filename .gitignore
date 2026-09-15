@@ -1,0 +1,10 @@
+# credentials and run state never go into git
+client_secret.json
+token.json
+flow.pkl
+state.json
+plan.json
+migration.log
+tmp/
+inventory.json
+__pycache__/
