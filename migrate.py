@@ -84,6 +84,13 @@ class Api:
             data = body() if callable(body) else body
             try:
                 r = self.s.request(method, url, headers=self.hdr(extra), data=data, timeout=300, **kw)
+            except requests.exceptions.RequestException as e:
+                if attempt == 5:
+                    raise
+                wait = 10 * (attempt + 1)
+                log(f"  network error on {url.split('?')[0]} ({type(e).__name__}) — waiting {wait}s")
+                time.sleep(wait)
+                continue
             finally:
                 if callable(body) and hasattr(data, "close"):
                     data.close()
@@ -200,15 +207,25 @@ def cmd_albums(args):
 
 # ---------- upload ----------
 def download(api, file_id, dest):
-    with api.s.get(f"{DRIVE}/files/{file_id}", params={"alt": "media", "supportsAllDrives": "true"},
-                   headers=api.hdr(), stream=True, timeout=600) as r:
-        r.raise_for_status()
-        h = hashlib.md5()
-        with open(dest, "wb") as f:
-            for chunk in r.iter_content(1 << 20):
-                f.write(chunk)
-                h.update(chunk)
-    return h.hexdigest()
+    for attempt in range(6):
+        try:
+            with api.s.get(f"{DRIVE}/files/{file_id}", params={"alt": "media", "supportsAllDrives": "true"},
+                           headers=api.hdr(), stream=True, timeout=600) as r:
+                if r.status_code == 429 or r.status_code >= 500:
+                    raise requests.exceptions.RetryError(f"{r.status_code} from Drive download")
+                r.raise_for_status()
+                h = hashlib.md5()
+                with open(dest, "wb") as f:
+                    for chunk in r.iter_content(1 << 20):
+                        f.write(chunk)
+                        h.update(chunk)
+            return h.hexdigest()
+        except requests.exceptions.RequestException as e:
+            if attempt == 5:
+                raise
+            wait = 10 * (attempt + 1)
+            log(f"  download error for {file_id} ({type(e).__name__}) — waiting {wait}s")
+            time.sleep(wait)
 
 
 def upload_bytes(api, path, name, mime):
