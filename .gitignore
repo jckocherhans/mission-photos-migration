@@ -9,3 +9,7 @@ tmp/
 inventory.json
 __pycache__/
 upload.out
+cleanup_plan.json
+cleanup_state.json
+cleanup.log
+cleanup.out
