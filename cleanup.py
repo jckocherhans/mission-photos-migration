@@ -43,7 +43,7 @@ ROOTS = {  # label -> folder id
 DEST = "1UY_mnZAouKe6MtRU5fyNlOaGL8fdq5ct"          # "Jason Merida Mexico Mission"
 LEFTOVERS_NAME = "Archive leftovers"
 
-_lock = threading.Lock()
+_lock = threading.RLock()   # re-entrant: log() is called while the lock is held
 
 
 def log(msg):
