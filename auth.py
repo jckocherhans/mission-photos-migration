@@ -15,7 +15,7 @@ from google_auth_oauthlib.flow import Flow
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCOPES = [
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/drive",   # full Drive access: needed for the post-migration cleanup (trash / move)
     "https://www.googleapis.com/auth/photoslibrary.appendonly",
     "https://www.googleapis.com/auth/photoslibrary.edit.appcreateddata",
     "https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata",
