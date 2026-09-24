@@ -403,10 +403,13 @@ def cmd_report(args):
     done = sum(1 for g in plan["items"] if "media_id" in st["items"].get(g["md5"], {}))
     err = [g["name"] for g in plan["items"] if "error" in st["items"].get(g["md5"], {})]
     pre = [g for g in plan["items"] if st["items"].get(g["md5"], {}).get("preexisting")]
+    unp = [g["name"] for g in plan["items"] if st["items"].get(g["md5"], {}).get("unprocessable")]
     print(f"{done}/{n} items in Google Photos; {len(err)} errors; {len(pre)} already in library "
-          f"(not filed into albums); {len(st['albums'])} albums")
+          f"(not filed into albums); {len(unp)} discarded by Google as unprocessable; {len(st['albums'])} albums")
     if err:
         print("errors:", err[:20])
+    if unp:
+        print("discarded by Google:", unp)
     if pre:
         by_album = collections.Counter(a for g in pre for a in g["albums"])
         print("already-in-library items by album:", dict(by_album))
